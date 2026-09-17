@@ -1,0 +1,25 @@
+# 复制为 .dev.vars 后本地 wrangler dev 生效（不要提交真实密钥）
+
+# 账号池：JSON 数组，label 是自己起的名字，apiKey 是 rc- 开头的 AMD key
+AMD_ACCOUNTS='[{"label":"acct-a","apiKey":"rc-xxxxxxxx"},{"label":"acct-b","apiKey":"rc-yyyyyyyy"}]'
+
+# 客户端访问本代理需要的 token（不设则接口对外开放）
+ACCESS_TOKEN=change-me-access
+
+# 管理接口 token（/admin/*），不设则管理接口关闭
+ADMIN_TOKEN=change-me-admin
+
+# 可选：覆盖上游地址
+# AMD_API_BASE=https://developer.amd.com.cn/radeon/api
+# AMD_PLATFORM_BASE=https://radeon-global.anruicloud.com
+
+# 可选：调度参数
+# MAX_KEY_ATTEMPTS=3
+# RPM_LIMIT=20
+# QUOTA_TTL_SECONDS=60
+# PROBE_MODEL=DeepSeek-V4-Flash
+
+# 可选：仅当你希望 /admin/redeploy 能自动重新部署时才需要
+# CF_API_TOKEN=
+# CF_ACCOUNT_ID=
+# CF_SCRIPT_NAME=amd-api-balancer

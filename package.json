@@ -1,0 +1,26 @@
+{
+  "name": "amd-api-balancer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that load-balances AMD AI (Radeon Cloud) API keys and reports per-account quota",
+  "type": "module",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "tail": "wrangler tail",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260917.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.133.0"
+  }
+}

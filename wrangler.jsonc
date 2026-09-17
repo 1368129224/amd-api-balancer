@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "amd-api-balancer",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "BALANCER",
+        "class_name": "Balancer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["Balancer"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+  "vars": {
+    "AMD_API_BASE": "https://developer.amd.com.cn/radeon/api",
+    "AMD_PLATFORM_BASE": "https://radeon-global.anruicloud.com",
+    "QUOTA_TTL_SECONDS": "60",
+    "MAX_KEY_ATTEMPTS": "3",
+    "RPM_LIMIT": "20"
+  }
+}
