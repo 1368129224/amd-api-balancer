@@ -10,6 +10,7 @@ import {
   type Classified,
 } from "./amd";
 import {
+  asString,
   maskKey,
   mergeAccounts,
   parseAccounts,
@@ -798,9 +799,36 @@ export class Balancer {
 
   // ── 额度 ──────────────────────────────────────────────────────
 
+  /**
+   * 诊断用：只报告「哪些环境变量被注入了」，绝不输出值。
+   *
+   * /health 是公开且无需鉴权的，输出值就等于泄露 API key，所以这里只给布尔值。
+   *
+   * 为什么值得单独暴露：在 CF 面板把密钥加成明文 Variables 时，下一次部署
+   * （包括 Git 集成触发的自动构建）会把它们覆盖掉，表现为 accounts: 0 /
+   * auth_required: false，非常容易被误判成代码 bug。看一眼这里就能区分
+   * 「值没到 env」和「值到了但解析失败」。
+   */
+  private envPresence(env: Env): Record<string, boolean> {
+    const names = [
+      "AMD_ACCOUNTS",
+      "AMD_API_KEYS",
+      "AMD_API_KEY",
+      "ACCESS_TOKEN",
+      "ADMIN_TOKEN",
+    ] as const;
+    const out: Record<string, boolean> = {};
+    for (const name of names) out[name] = asString(env[name]).trim().length > 0;
+    return out;
+  }
+
   private async handleHealth(env: Env, cfg: RuntimeConfig): Promise<Response> {
     const now = Date.now();
     const accounts = await this.resolveAccounts(env);
+    const hint =
+      accounts.length === 0 && asString(env.AMD_ACCOUNTS).trim().length > 0
+        ? "AMD_ACCOUNTS 有值但解析出 0 个账号：检查是否为合法 JSON、key 是否含 '-'"
+        : undefined;
     return json({
       status: "ok",
       accounts: accounts.length,
@@ -808,6 +836,8 @@ export class Balancer {
         .length,
       auth_required: Boolean(cfg.accessToken || cfg.adminToken),
       upstream: cfg.apiBase,
+      env: this.envPresence(env),
+      ...(hint ? { accountsHint: hint } : {}),
       time: new Date(now).toISOString(),
     });
   }

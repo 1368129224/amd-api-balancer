@@ -536,6 +536,63 @@ describe("Balancer 认证与路由", () => {
     );
     expect(await asJson(res)).toMatchObject({ status: "ok", accounts: 2, schedulable: 2 });
   });
+
+  // 这一组测试针对一个真实踩过的坑：在 CF 面板把密钥加成明文 Variables，
+  // 下一次部署（含 Git 集成自动构建）会把它覆盖掉，表现为 accounts: 0。
+  // 以前没有任何办法区分「值没到 env」和「值到了但解析失败」。
+  describe("/health 的环境变量诊断", () => {
+    const health = async (env: Env) => {
+      const res = await new Balancer().fetch(
+        new Request("https://balancer.test/health"),
+        env,
+        makeCtx(),
+      );
+      return asJson(res);
+    };
+
+    it("值缺失时标记为 false（就是被 wrangler 覆盖后的样子）", async () => {
+      const body = await health(makeEnv(""));
+      expect(body.accounts).toBe(0);
+      expect(body.auth_required).toBe(false);
+      expect(body.env).toMatchObject({ AMD_ACCOUNTS: false, ACCESS_TOKEN: false });
+    });
+
+    it("值存在时标记为 true", async () => {
+      const body = await health(
+        makeEnv(JSON.stringify([{ label: "a", apiKey: "rc-key-a" }]), {
+          ACCESS_TOKEN: "tok",
+        }),
+      );
+      expect(body.env).toMatchObject({ AMD_ACCOUNTS: true, ACCESS_TOKEN: true });
+      expect(body.auth_required).toBe(true);
+    });
+
+    it("有值但解析不出账号时给出 hint", async () => {
+      // 非法 JSON 会被退化成按行解析，最终解析不出合法账号
+      const body = await health(makeEnv("not json at all"));
+      expect(body.accounts).toBe(0);
+      expect(body.env.AMD_ACCOUNTS).toBe(true);
+      expect(body.accountsHint).toContain("解析出 0 个账号");
+    });
+
+    it("绝不泄露任何密钥值", async () => {
+      const secret = "rc-super-secret-value-do-not-leak";
+      const body = await health(
+        makeEnv(JSON.stringify([{ label: "a", apiKey: secret }]), {
+          ACCESS_TOKEN: "access-secret-value",
+          ADMIN_TOKEN: "admin-secret-value",
+        }),
+      );
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain("access-secret-value");
+      expect(serialized).not.toContain("admin-secret-value");
+      // 诊断字段的值只允许是布尔
+      for (const v of Object.values(body.env as Record<string, unknown>)) {
+        expect(typeof v).toBe("boolean");
+      }
+    });
+  });
 });
 
 describe("Balancer 额度接口", () => {

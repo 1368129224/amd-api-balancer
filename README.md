@@ -172,7 +172,7 @@ curl https://amd-api-balancer.<你的子域>.workers.dev/v1/chat/completions \
 | `GET /v1/models` | 模型列表（带 120s 缓存） |
 | `GET /v1/quota` | 额度 JSON（看板数据源），`?refresh=1` 强制刷新 |
 | `GET /dashboard` | 中文额度看板 |
-| `GET /health` | 健康检查（不需要 token） |
+| `GET /health` | 健康检查（不需要 token，含环境变量注入诊断） |
 | `GET /admin/accounts` | 账号列表 + 调度状态 |
 | `POST /admin/accounts` | 添加账号 `{"label":"x","apiKey":"rc-..."}` |
 | `POST /admin/accounts/delete` | 删除/隐藏账号 `{"label":"x"}` |
@@ -260,6 +260,27 @@ npm run tail        # 看线上日志
 ### Q：所有请求都返回 429 `all_keys_unavailable`？
 所有 key 都在冷却或已耗尽。打开 `/dashboard` 看 `skipReason`，
 如果是「今日额度已用尽」，等额度重置（看 `dailyResetAtMs`）即可。
+
+### Q：在面板里加了密钥，但 `/health` 一直显示 `accounts: 0`？
+最常见的原因是**加成了明文 `Variables` 而不是 `Secret`**。
+`wrangler.jsonc` 里的 `vars` 是明文变量的唯一真源，所以下一次部署
+（包括 Git 集成推送后触发的自动构建）会把面板上加的明文变量覆盖掉；
+`Secret` 不受影响。另一个原因是加完没有点 **Deploy**。
+
+`/health` 会直接告诉你值到底有没有到 Worker（只报布尔值，不输出密钥）：
+
+```json
+{
+  "accounts": 0,
+  "auth_required": false,
+  "env": { "AMD_ACCOUNTS": false, "ACCESS_TOKEN": false }
+}
+```
+
+- `env` 里为 `false` → 值没到 Worker，按上面两条检查设置方式。
+- `env.AMD_ACCOUNTS` 为 `true` 但 `accounts` 仍为 `0` → 值到了但解析失败，
+  会额外给出 `accountsHint`。此时检查 `AMD_ACCOUNTS` 是否为合法 JSON
+  （不要用单引号包裹、不要留尾逗号），以及 key 里是否含 `-`。
 
 ### Q：某个 key 显示「自动禁用」？
 说明它返回了 401/403，通常是 key 被撤销或复制错了。
