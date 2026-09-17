@@ -89,8 +89,10 @@ git push -u origin main
 | `ACCESS_TOKEN` | **Secret** | 你自己定的客户端 token |
 | `ADMIN_TOKEN` | **Secret** | 你自己定的管理 token |
 
-> 注意：Git 集成部署时，**`wrangler.jsonc` 的 `vars` 会覆盖面板里的同名普通变量**。
-> 所以 `AMD_API_BASE` 这类在配置里已有的变量不用重复加；密钥类一定要用 **Secret**。
+> 必须选 **Secret** 类型，不要用普通变量：Cloudflare 把 `wrangler.jsonc` 当作配置的唯一来源，
+> 面板里加的**普通变量**会在下次部署时被覆盖（官方文档的 "source of truth" 行为）。
+> **Secret 不受影响**，只有 `wrangler secret delete` 才会删掉它。
+> 所以密钥全部用 Secret，普通变量那么几个已经在 `wrangler.jsonc` 里了，不用在面板重复加。
 
 #### 关于依赖源（重要）
 
@@ -109,9 +111,6 @@ git add -A && git commit -m "update" && git push
 ```
 
 推上去后 Cloudflare 会自动重新构建部署。也可以在面板里点 **Retry deployment** 手动触发。
-
-> 用 Git 集成时 `POST /admin/redeploy`（通过 CF API 触发部署）就**不需要**了，
-> 推送代码本身就是重新部署的方式。
 
 ### 本地开发
 
