@@ -93,6 +93,14 @@ git push -u origin main
 > 面板里加的**普通变量**会在下次部署时被覆盖（官方文档的 "source of truth" 行为）。
 > **Secret 不受影响**，只有 `wrangler secret delete` 才会删掉它。
 > 所以密钥全部用 Secret，普通变量那么几个已经在 `wrangler.jsonc` 里了，不用在面板重复加。
+>
+> **部署日志里不会列出 Secret**，这是 Cloudflare 的既定行为（出于安全，Secret 不打印）。
+> 所以看到日志里只有 `env.AMD_API_BASE` 之类的 Variables、没有 Secret，属正常现象，
+> 不代表 Secret 没设上。要看密钥是否真的到达 Worker，请访问 `/health` 的 `env` 字段。
+
+`wrangler.jsonc` 里已声明 `secrets.required = ["AMD_ACCOUNTS", "ACCESS_TOKEN"]`，
+因此这两个 Secret 没配时，`wrangler deploy` 会**直接失败并指名缺哪个**，
+不会再静静地部署出一个没有密钥的 Worker。
 
 #### 关于依赖源（重要）
 

@@ -24,6 +24,22 @@
   "triggers": {
     "crons": ["*/10 * * * *"]
   },
+  // 部署前强制校验这些 Secret 已配置。
+  //
+  // 为什么需要：Secret 缺配时部署会「成功」，但 Worker 起来是没有密钥的，
+  // 表现为 /health 里 accounts: 0、auth_required: false，很难看出是漏配。
+  // 声明为 required 后，wrangler deploy 会直接失败并列出缺哪个。
+  //
+  // 注意两点：
+  // 1. 一旦声明了 secrets 字段，本地 wrangler dev 只从 .dev.vars / .env 加载列在
+  //    required 里的键，其余会被静默排除。实测：required 里只有 AMD_ACCOUNTS 时，
+  //    ACCESS_TOKEN 会变成未设置（auth_required 变 false）。所以 required 应覆盖
+  //    本地调试需要的全部密钥。（生产环境 Secret 不受此过滤影响。）
+  // 2. ADMIN_TOKEN 故意不列入：它缺失时会回退用 ACCESS_TOKEN，管理接口依然可用，
+  //    不强求用户多配一个。
+  "secrets": {
+    "required": ["AMD_ACCOUNTS", "ACCESS_TOKEN"]
+  },
   "vars": {
     "AMD_API_BASE": "https://developer.amd.com.cn/radeon/api",
     "AMD_PLATFORM_BASE": "https://radeon-global.anruicloud.com",
