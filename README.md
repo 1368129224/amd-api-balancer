@@ -21,96 +21,66 @@
 
 ## 二、部署
 
-有两种方式，任选其一：
+两种方式任选其一：
 
-- **方式 A：命令行部署**（最快，首次推荐）
-- **方式 B：连接 GitHub 自动部署**（改代码推上去就自动发布，见下方 2.2）
+- **方式一：连接 GitHub 仓库** —— 推代码即自动发布，适合长期使用（推荐）
+- **方式二：命令行部署** —— 无需仓库，本地几条命令跑起来，适合先试用
 
-> ⚠️ 无论哪种方式，**密钥都不要写进代码或配置文件**。
-> `wrangler secret put` 存的是加密的 Worker Secret，不会出现在仓库里。
+> ⚠️ 密钥不要写进代码或配置文件，全部用 **Secret** 存。
+> 两种方式配的是**同一个 Worker 的同一份 Secret**，可以先用方式二跑起来，
+> 之后随时接上方式一，无需迁移。
 
-### 2.1 方式 A：命令行部署
+### 方式一：连接 GitHub 仓库自动部署
 
-```bash
-# 1. 安装依赖
-npm install
+Cloudflare 的 Git 集成对构建环境有要求，本项目已经调好（见下方「依赖源」），直接连即可。
 
-# 2. 登录 Cloudflare
-npx wrangler login
+#### 1. 把项目推到 GitHub
 
-# 3. 写入账号池（JSON 数组，key 里含 - 和大量字符，注意整体用单引号包住）
-npx wrangler secret put AMD_ACCOUNTS
-# 粘贴下面这一行后回车：
-# [{"label":"acct-a","apiKey":"rc-aaaa1111"},{"label":"acct-b","apiKey":"rc-bbbb2222"}]
-
-# 4. 设置客户端访问 token（不设则任何人拿到地址都能用你的额度）
-npx wrangler secret put ACCESS_TOKEN
-
-# 5. 设置管理 token（用于 /admin/* 和看板里的管理操作）
-npx wrangler secret put ADMIN_TOKEN
-
-# 6. 部署
-npm run deploy
-```
-
-> `ADMIN_TOKEN` 不填时会自动退回用 `ACCESS_TOKEN`；
-> `ACCESS_TOKEN` 也不填时**接口完全开放**，请务必至少设一个。
-
-部署完成后会得到一个地址，例如 `https://amd-api-balancer.<你的子域>.workers.dev`。
-
-### 2.2 方式 B：连接 GitHub 自动部署
-
-Cloudflare 的 Git 集成对**构建环境**有要求，这个项目已经调好，直接连即可。
-
-#### 第一步：把项目推到 GitHub
+Fork 本项目，或推到你自己的仓库：
 
 ```bash
-git remote add origin git@github.com:<你的用户名>/amd-api-balancer.git
+git remote add origin <你的仓库地址>
 git push -u origin main
 ```
 
-#### 第二步：在 Cloudflare 面板连接仓库
+#### 2. 在 Cloudflare 连接仓库
 
-1. 打开 <https://dash.cloudflare.com> → **Workers & Pages** → **Create** → **Pages/Workers**
-2. 选择 **Connect to Git**，授权并选中刚推上去的仓库
+1. 打开 <https://dash.cloudflare.com> → **Workers & Pages** → **Create**
+2. 选 **Connect to Git**，授权并选中刚推上去的仓库
 3. 构建设置保持默认即可（wrangler 项目会自动识别）：
-   - **Build command**：`npm ci`（或留空）
+   - **Build command**：`npm ci`
    - **Deploy command**：`npx wrangler deploy`
-4. **Advanced → Build variables** 一般不用加东西
-5. 点 **Deploy**
+4. 点 **Deploy**
 
-#### 第三步：配置密钥（关键，不要在仓库里配）
+> 如果还没设 Secret，**这次构建会失败**，提示缺 `AMD_ACCOUNTS`/`ACCESS_TOKEN`。
+> 这是预期的，原因和后续操作见下一步。
 
-首次部署后，去 Worker 的 **Settings → Variables and Secrets** 添加：
+#### 3. 配置密钥，然后重新部署
+
+去 Worker 的 **Settings → Variables and Secrets**，添加：
 
 | 名称 | 类型 | 值 |
 | --- | --- | --- |
 | `AMD_ACCOUNTS` | **Secret** | `[{"label":"a","apiKey":"rc-..."}]` |
 | `ACCESS_TOKEN` | **Secret** | 你自己定的客户端 token |
-| `ADMIN_TOKEN` | **Secret** | 你自己定的管理 token |
+| `ADMIN_TOKEN` | **Secret** | 你自己定的管理 token（可省） |
 
-> 必须选 **Secret** 类型，不要用普通变量：Cloudflare 把 `wrangler.jsonc` 当作配置的唯一来源，
-> 面板里加的**普通变量**会在下次部署时被覆盖（官方文档的 "source of truth" 行为）。
-> **Secret 不受影响**，只有 `wrangler secret delete` 才会删掉它。
-> 所以密钥全部用 Secret，普通变量那么几个已经在 `wrangler.jsonc` 里了，不用在面板重复加。
+`ADMIN_TOKEN` 不填时会自动回退用 `ACCESS_TOKEN`；
+`ACCESS_TOKEN` 也不填时**接口完全开放**，请务必至少设一个。
+
+加完后回到构建记录点 **Retry deployment**（或随便推一次提交）即完成首次部署。
+
+> **为什么第 2 步的构建必然失败**：`wrangler.jsonc` 声明了
+> `secrets.required = ["AMD_ACCOUNTS", "ACCESS_TOKEN"]`，Secret 没配时构建会直接失败并指名缺哪个。
+> 失败日志里会建议你跑 `wrangler secret put`，但**走 Git 集成时不用理它** ——
+> 在面板里加 Secret 即可，下次构建会自动读到。
+> 这是刻意设计的 —— 以前 Secret 漏配时部署会「成功」，但 Worker 起来没有密钥，表现为
+> `/health` 里 `accounts: 0`、`auth_required: false`，很难看出是漏配。现在会当场拦住。
 >
-> **部署日志里不会列出 Secret**，这是 Cloudflare 的既定行为（出于安全，Secret 不打印）。
-> 所以看到日志里只有 `env.AMD_API_BASE` 之类的 Variables、没有 Secret，属正常现象，
-> 不代表 Secret 没设上。要看密钥是否真的到达 Worker，请访问 `/health` 的 `env` 字段。
-
-`wrangler.jsonc` 里已声明 `secrets.required = ["AMD_ACCOUNTS", "ACCESS_TOKEN"]`，
-因此这两个 Secret 没配时，`wrangler deploy` 会**直接失败并指名缺哪个**，
-不会再静静地部署出一个没有密钥的 Worker。
-
-#### 关于依赖源（重要）
-
-项目的 `package-lock.json` 已把 182 个依赖全部指向官方源 `registry.npmjs.org`，
-并加了项目级 `.npmrc` 锁定官方源。**务必保持这样**：
-
-- Cloudflare 构建机在海外，访问国内镜像 `registry.npmmirror.com` 容易超时导致 `npm ci` 失败
-- 不要为了本地装包快就把 lockfile 改回镜像地址再提交
-- 如果你本地确实想用镜像，用命令行覆盖，不要改文件：
-  `npm ci --registry=https://registry.npmmirror.com`
+> **必须选 Secret 类型**，不要用普通 `Variables`：`wrangler.jsonc` 的 `vars` 是明文变量的唯一真源，
+> 每次部署都会把面板上加的明文变量覆盖掉，Secret 不受影响。
+> 另外，**构建日志不会列出 Secret**（Cloudflare 的既定行为），日志里看不到 Secret 属正常，
+> 是否真的到达 Worker 要看 `/health` 的 `env` 字段。
 
 #### 改了代码怎么发布？
 
@@ -118,7 +88,43 @@ git push -u origin main
 git add -A && git commit -m "update" && git push
 ```
 
-推上去后 Cloudflare 会自动重新构建部署。也可以在面板里点 **Retry deployment** 手动触发。
+推上去后 Cloudflare 会自动重新构建部署，也可以在面板里点 **Retry deployment** 手动触发。
+
+#### 依赖源（重要）
+
+`package-lock.json`（182 个依赖）和项目级 `.npmrc` 都已指向官方源 `registry.npmjs.org`。
+Cloudflare 构建机在海外，用国内镜像容易超时导致 `npm ci` 失败，所以**不要改回镜像地址**。
+本地确实想用镜像时，用命令行参数覆盖，别改文件：
+
+```bash
+npm ci --registry=https://registry.npmmirror.com
+```
+
+### 方式二：命令行部署
+
+```bash
+npm install
+npx wrangler login
+
+# 账号池：JSON 数组，整体用单引号包住（key 里含 - 和大量字符）
+# 注：Worker 还不存在时，wrangler 会问你要不要新建一个，选“是”即可
+npx wrangler secret put AMD_ACCOUNTS
+# 粘贴下面这一行后回车：
+# [{"label":"acct-a","apiKey":"rc-aaaa1111"},{"label":"acct-b","apiKey":"rc-bbbb2222"}]
+
+# 客户端访问 token（不设则任何人拿到地址都能用你的额度）
+npx wrangler secret put ACCESS_TOKEN
+
+# 管理 token（用于 /admin/* 和看板里的管理操作，可不填）
+npx wrangler secret put ADMIN_TOKEN
+
+npm run deploy
+```
+
+部署完会得到地址，例如 `https://amd-api-balancer.<你的子域>.workers.dev`。
+
+> 顺序很重要：**先设 Secret，再 `npm run deploy`**（原因见方式一第 3 步）。
+> 若你跳过了 `secret put`，报错会提示改用 `wrangler deploy --secrets-file <文件>` 一次性带上。
 
 ### 本地开发
 
@@ -242,26 +248,21 @@ x-amd-pool-accounts: 3              # 当前可用账号数
 
 ## 七、账号持久化说明
 
-通过管理接口/看板添加的账号，默认存在 **Durable Object 存储**里，重启和换实例都不会丢
-（`GET /admin/accounts` 会返回 `persistent: true`；直接以库的方式实例化、没有 DO 存储时则为 `false`）。
-
-仍推荐用 `wrangler secret put AMD_ACCOUNTS` 管理长期账号，因为：
-
-- secret 不会出现在任何 HTTP 响应里
-- 用 `wrangler.jsonc` 的版本管理更清晰
-
-如果你想改用独立的 Workers KV（例如多脚本共享账号池），绑定一个名为 `BALANCER_KV` 的 KV 命名空间即可，会自动优先使用它。
+通过管理接口/看板添加的账号存在 **Durable Object 存储**里，重启和换实例都不会丢
+（`GET /admin/accounts` 返回 `persistent: true`）。仍推荐用 Secret 管理长期账号，
+因为它不会出现在任何 HTTP 响应里，也更便于版本管理。
+想改用独立 Workers KV（例如多脚本共享账号池），绑定名为 `BALANCER_KV` 的命名空间即可自动优先使用。
 
 ## 八、开发与测试
 
 ```bash
 npm run typecheck   # TypeScript 检查
-npm test            # 单元测试（82 个）
+npm test            # 单元测试
 npm run dev         # 本地跑起来
 npm run tail        # 看线上日志
 ```
 
-测试覆盖了额度头解析、故障分类、故障切换、认证、管理接口和持久化等关键路径。
+测试覆盖了额度头解析、故障分类、故障切换、认证、管理接口、看板脚本和持久化等关键路径。
 
 ## 九、常见问题
 
@@ -269,26 +270,18 @@ npm run tail        # 看线上日志
 所有 key 都在冷却或已耗尽。打开 `/dashboard` 看 `skipReason`，
 如果是「今日额度已用尽」，等额度重置（看 `dailyResetAtMs`）即可。
 
-### Q：在面板里加了密钥，但 `/health` 一直显示 `accounts: 0`？
-最常见的原因是**加成了明文 `Variables` 而不是 `Secret`**。
-`wrangler.jsonc` 里的 `vars` 是明文变量的唯一真源，所以下一次部署
-（包括 Git 集成推送后触发的自动构建）会把面板上加的明文变量覆盖掉；
-`Secret` 不受影响。另一个原因是加完没有点 **Deploy**。
-
-`/health` 会直接告诉你值到底有没有到 Worker（只报布尔值，不输出密钥）：
+### Q：`/health` 显示 `accounts: 0`？
+先看 `env` 字段（只报布尔值，不输出密钥）：
 
 ```json
-{
-  "accounts": 0,
-  "auth_required": false,
-  "env": { "AMD_ACCOUNTS": false, "ACCESS_TOKEN": false }
-}
+{ "accounts": 0, "auth_required": false,
+  "env": { "AMD_ACCOUNTS": false, "ACCESS_TOKEN": false } }
 ```
 
-- `env` 里为 `false` → 值没到 Worker，按上面两条检查设置方式。
-- `env.AMD_ACCOUNTS` 为 `true` 但 `accounts` 仍为 `0` → 值到了但解析失败，
-  会额外给出 `accountsHint`。此时检查 `AMD_ACCOUNTS` 是否为合法 JSON
-  （不要用单引号包裹、不要留尾逗号），以及 key 里是否含 `-`。
+- `env.AMD_ACCOUNTS` 为 `false` → 值没到 Worker：多半是加成了明文 `Variables`
+  （会被下次部署覆盖，应改成 **Secret**），或加完没点 **Deploy**。
+- 为 `true` 但 `accounts` 仍是 `0` → 值到了但解析失败，会附带 `accountsHint`。
+  检查是否为合法 JSON（别用单引号包裹、别留尾逗号），且 key 里含 `-`。
 
 ### Q：某个 key 显示「自动禁用」？
 说明它返回了 401/403，通常是 key 被撤销或复制错了。
