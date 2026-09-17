@@ -91,9 +91,25 @@ export const DASHBOARD_HTML = `<!doctype html>
     <pre id="raw">—</pre>
   </details>
 
-  <details>
+  <details open>
     <summary>使用说明</summary>
-    <pre id="usage"></pre>
+    <pre id="usage"># OpenAI SDK
+export OPENAI_BASE_URL="__BASE__/v1"
+export OPENAI_API_KEY="__TOKEN__"
+
+# Claude Code (Anthropic 兼容)
+export ANTHROPIC_BASE_URL="__BASE__"
+export ANTHROPIC_AUTH_TOKEN="__TOKEN__"
+
+# curl
+curl __BASE__/v1/chat/completions \\
+  -H "Authorization: Bearer __TOKEN__" -H "content-type: application/json" \\
+  -d '{"model":"DeepSeek-V4-Flash","messages":[{"role":"user","content":"hi"}]}'
+
+curl __BASE__/v1/quota -H "Authorization: Bearer __TOKEN__"
+
+# 模型列表
+curl __BASE__/v1/models -H "Authorization: Bearer __TOKEN__"</pre>
   </details>
 </main>
 <div class="toast" id="toast"></div>
@@ -142,6 +158,7 @@ async function load(showErrors) {
 
 function render() {
   const d = report || {};
+  renderUsage();
   if (d.error) {
     $('totals').innerHTML = '';
     $('rows').innerHTML = '<tr><td colspan="11" class="err">' + esc(d.error.message) + '</td></tr>';
@@ -198,21 +215,32 @@ function render() {
 
   const hidden = (d.hiddenAccounts || []);
   $('hidden').textContent = hidden.length ? '已隐藏（来自 secret）：' + hidden.join(', ') : '';
+}
+
+/**
+ * 填充「使用说明」里的占位符。
+ *
+ * 单独抽成函数是因为 render() 在出错时会提前 return（例如首次打开页面还没填 token），
+ * 放在 render() 尾部会导致占位符永远不被替换，用户看到的是 __BASE__ 这种原始标记。
+ *
+ * 文本本身写在 HTML 的 <pre> 里，而不是在 JS 里拼字符串 —— 之前拼字符串时，
+ * curl 示例里的嵌套引号会把 JS 字符串提前闭合，导致整个 script 块语法错误、
+ * 页面永远卡在「加载中…」。
+ * 用函数形式的 replace，避免 token 里出现 $& 之类的替换模式字符被误解析。
+ */
+function renderUsage() {
   const base = (typeof location === 'object' ? location.origin : '');
-  $('usage').textContent =
-    '# OpenAI SDK\\n' +
-    'export OPENAI_BASE_URL="' + base + '/v1"\\n' +
-    'export OPENAI_API_KEY="' + (token() ? token().slice(0, 6) + '…' : '<你的 ACCESS_TOKEN>') + '"\\n\\n' +
-    '# Claude Code (Anthropic 兼容)\\n' +
-    'export ANTHROPIC_BASE_URL="' + base + '"\\n' +
-    'export ANTHROPIC_AUTH_TOKEN="<你的 ACCESS_TOKEN>"\\n\\n' +
-    '# curl\\n' +
-    'curl ' + base + '/v1/chat/completions \\\\\\n' +
-    '  -H "Authorization: Bearer <token>" -H "content-type: application/json" \\\\\\n' +
-    '  -d \'{"model":"DeepSeek-V4-Flash","messages":[{"role":"user","content":"hi"}]}\'\\n\\n' +
-    'curl ' + base + '/v1/quota -H "Authorization: Bearer <token>"\\n\\n' +
-    '# 模型列表\\n' +
-    'curl ' + base + '/v1/models -H "Authorization: Bearer <token>"\\n';
+  const tok = token() ? token().slice(0, 6) + '…' : '<你的 ACCESS_TOKEN>';
+  const el = $('usage');
+  if (!el) return;
+  // 占位符替换一次后就没了，用 dataset 记住已填充的值，避免重复替换
+  if (el.dataset.filled === '1' && el.dataset.token === tok) return;
+  el.dataset.filled = '1';
+  el.dataset.token = tok;
+  // 用 textContent 而不是 innerHTML：内容是纯文本，既不担心注入也不需要转义
+  el.textContent = el.textContent
+    .replace(/__BASE__/g, () => base)
+    .replace(/__TOKEN__/g, () => tok);
 }
 
 function schedule() {
