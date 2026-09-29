@@ -1,0 +1,92 @@
+# ─── AMD AI Key Balancer — Docker Compose ────────────────────────────────────
+#
+# 快速上手：
+#   1. 复制 .env.example 为 .env，填入你的 AMD API Key 和 token
+#   2. docker compose up              # 本地开发，访问 http://localhost:8787
+#   3. docker compose run --rm deploy # 一键部署到 Cloudflare Workers
+#
+# 注意：本地 dev 模式使用 wrangler dev，功能与线上一致，但：
+#   - Durable Objects 数据存在容器内的 .wrangler/state，容器删除后会丢失
+#   - 使用 volumes 挂载后重建容器数据不丢（见下方 volumes 配置）
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: amd-api-balancer
+
+services:
+  # ── 本地开发服务 ──────────────────────────────────────────────────────────
+  dev:
+    build: .
+    image: amd-api-balancer:local
+    container_name: amd-balancer-dev
+    env_file:
+      - path: .env
+        required: false      # .env 不存在时不报错，可以只用 environment 块
+    environment:
+      # 这些变量对应 wrangler dev 读取的 .dev.vars 键名
+      # 优先级：environment > env_file
+      AMD_ACCOUNTS: ${AMD_ACCOUNTS:-}
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+      ADMIN_TOKEN:  ${ADMIN_TOKEN:-}
+      # wrangler dev 绕过 secrets.required 检查，所以这里可以留空
+      # 但不设 AMD_ACCOUNTS 时账号数为 0，/v1/quota 会返回空列表
+    ports:
+      - "${PORT:-8787}:8787"
+    volumes:
+      # 持久化 Durable Object 状态（冷却、额度缓存等）
+      - wrangler-state:/app/.wrangler/state
+      # 热更新：把本地 src/ 挂进去，wrangler dev 会自动检测变化
+      - ./src:/app/src:ro
+    command: >
+      npx wrangler dev
+        --ip 0.0.0.0
+        --port 8787
+        --persist-to /app/.wrangler/state
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── 部署到 Cloudflare Workers ──────────────────────────────────────────────
+  # 用法：docker compose run --rm deploy
+  deploy:
+    build: .
+    image: amd-api-balancer:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Cloudflare 认证（必须）
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      # 部署时注入为 Secret（见下方说明）
+      AMD_ACCOUNTS: ${AMD_ACCOUNTS:-}
+      ACCESS_TOKEN: ${ACCESS_TOKEN:-}
+      ADMIN_TOKEN:  ${ADMIN_TOKEN:-}
+    command: >
+      sh -c "
+        echo '=== 检查 Cloudflare 认证 ===' &&
+        if [ -z \"$$CLOUDFLARE_API_TOKEN\" ]; then
+          echo 'ERROR: 请设置 CLOUDFLARE_API_TOKEN' && exit 1;
+        fi &&
+        echo '=== 注入 Secrets ===' &&
+        if [ -n \"$$AMD_ACCOUNTS\" ]; then
+          echo \"$$AMD_ACCOUNTS\" | npx wrangler secret put AMD_ACCOUNTS;
+        fi &&
+        if [ -n \"$$ACCESS_TOKEN\" ]; then
+          echo \"$$ACCESS_TOKEN\" | npx wrangler secret put ACCESS_TOKEN;
+        fi &&
+        if [ -n \"$$ADMIN_TOKEN\" ]; then
+          echo \"$$ADMIN_TOKEN\" | npx wrangler secret put ADMIN_TOKEN;
+        fi &&
+        echo '=== 开始部署 ===' &&
+        npx wrangler deploy
+      "
+    profiles:
+      - deploy            # 不在 docker compose up 里启动，需要显式调用
+
+volumes:
+  wrangler-state:
+    driver: local

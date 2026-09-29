@@ -9,7 +9,7 @@
 - **中文额度看板**：`/dashboard` 实时查看每个 key 的剩余额度、今日用量、冷却状态
 - **管理接口**：增删账号、启停、探测额度、查看事件日志
 
-部署在 Cloudflare Workers 上，用 Durable Object 保存跨实例的调度状态（冷却、并发租约、额度缓存）。
+底层基于 Cloudflare Workers + Durable Object，用 Docker 可以**一键本地部署或一键发布**。
 
 ---
 
@@ -21,22 +21,76 @@
 
 ## 二、部署
 
-两种方式任选其一：
+三种方式任选其一：
 
-- **方式一：连接 GitHub 仓库** —— 推代码即自动发布，适合长期使用（推荐）
-- **方式二：命令行部署** —— 无需仓库，本地几条命令跑起来，适合先试用
+| 方式 | 特点 | 适合 |
+| --- | --- | --- |
+| **方式一：Docker** | 一个命令跑起来，不需要配本地 Node 环境 | 快速试用、本地私有部署 |
+| **方式二：连接 GitHub** | 推代码即自动发布，长期维护无需手动操作 | 长期使用、团队共享 |
+| **方式三：命令行** | 直接 `wrangler deploy` | 熟悉 Cloudflare 的用户 |
 
-> ⚠️ 密钥不要写进代码或配置文件，全部用 **Secret** 存。
-> 两种方式配的是**同一个 Worker 的同一份 Secret**，可以先用方式二跑起来，
-> 之后随时接上方式一，无需迁移。
+> ⚠️ 密钥不要写进代码或配置文件，全部用环境变量或 Secret 存。
 
-### 方式一：连接 GitHub 仓库自动部署
+---
 
-Cloudflare 的 Git 集成对构建环境有要求，本项目已经调好（见下方「依赖源」），直接连即可。
+### 方式一：Docker（推荐快速上手）
+
+#### 本地运行
+
+无需 Cloudflare 账号，`wrangler dev` 在容器里模拟 Workers 运行时。
+
+```bash
+# 1. 复制配置文件
+cp .env.example .env
+
+# 2. 编辑 .env，填入你的 key 和 token（必填 AMD_ACCOUNTS，建议填 ACCESS_TOKEN）
+vi .env  # 或用任意编辑器
+
+# 3. 启动
+docker compose up -d
+
+# 4. 查看日志
+docker compose logs -f dev
+```
+
+访问 `http://localhost:8787/dashboard` 打开额度看板，`http://localhost:8787/health` 验证配置。
+
+**数据持久化**：Durable Object 状态存在 Docker volume `wrangler-state` 里，
+容器重建不会丢失运行时账号和额度缓存。
+
+#### 部署到 Cloudflare（Docker 一键发布）
+
+如果你想把服务跑在 Cloudflare 边缘网络（免费额度内基本够用）：
+
+```bash
+# .env 里再补充 Cloudflare 认证信息
+# CLOUDFLARE_API_TOKEN=xxx   在 https://dash.cloudflare.com/profile/api-tokens 生成
+# CLOUDFLARE_ACCOUNT_ID=xxx  在 Workers 概览页右上角可以找到
+
+# 一键注入 Secret + 部署
+docker compose run --rm deploy
+```
+
+`deploy` 服务会自动把 `.env` 里的 `AMD_ACCOUNTS`、`ACCESS_TOKEN`、`ADMIN_TOKEN`
+注入为 Cloudflare Secret，然后执行 `wrangler deploy`。
+
+> ℹ️ **Token 权限要求**：Workers Scripts:Edit + Workers Routes:Edit + Account Settings:Read
+
+#### 改了代码怎么发布？
+
+```bash
+docker compose run --rm deploy
+```
+
+每次改完代码跑一遍即可，没有额外步骤。
+
+---
+
+### 方式二：连接 GitHub 仓库自动部署
+
+Cloudflare 的 Git 集成，推代码自动触发构建部署，适合长期维护。
 
 #### 1. 把项目推到 GitHub
-
-Fork 本项目，或推到你自己的仓库：
 
 ```bash
 git remote add origin <你的仓库地址>
@@ -46,14 +100,10 @@ git push -u origin main
 #### 2. 在 Cloudflare 连接仓库
 
 1. 打开 <https://dash.cloudflare.com> → **Workers & Pages** → **Create**
-2. 选 **Connect to Git**，授权并选中刚推上去的仓库
-3. 构建设置保持默认即可（wrangler 项目会自动识别）：
-   - **Build command**：`npm ci`
-   - **Deploy command**：`npx wrangler deploy`
-4. 点 **Deploy**
+2. 选 **Connect to Git**，授权并选中仓库
+3. 构建设置保持默认（自动识别 wrangler 项目），点 **Deploy**
 
-> 如果还没设 Secret，**这次构建会失败**，提示缺 `AMD_ACCOUNTS`/`ACCESS_TOKEN`。
-> 这是预期的，原因和后续操作见下一步。
+> 如果还没设 Secret，**这次构建会失败**（提示缺 `AMD_ACCOUNTS`），这是预期的，见下一步。
 
 #### 3. 配置密钥，然后重新部署
 
@@ -65,22 +115,10 @@ git push -u origin main
 | `ACCESS_TOKEN` | **Secret** | 你自己定的客户端 token |
 | `ADMIN_TOKEN` | **Secret** | 你自己定的管理 token（可省） |
 
-`ADMIN_TOKEN` 不填时会自动回退用 `ACCESS_TOKEN`；
-`ACCESS_TOKEN` 也不填时**接口完全开放**，请务必至少设一个。
+加完后回到构建记录点 **Retry deployment** 即可。
 
-加完后回到构建记录点 **Retry deployment**（或随便推一次提交）即完成首次部署。
-
-> **为什么第 2 步的构建必然失败**：`wrangler.jsonc` 声明了
-> `secrets.required = ["AMD_ACCOUNTS", "ACCESS_TOKEN"]`，Secret 没配时构建会直接失败并指名缺哪个。
-> 失败日志里会建议你跑 `wrangler secret put`，但**走 Git 集成时不用理它** ——
-> 在面板里加 Secret 即可，下次构建会自动读到。
-> 这是刻意设计的 —— 以前 Secret 漏配时部署会「成功」，但 Worker 起来没有密钥，表现为
-> `/health` 里 `accounts: 0`、`auth_required: false`，很难看出是漏配。现在会当场拦住。
->
-> **必须选 Secret 类型**，不要用普通 `Variables`：`wrangler.jsonc` 的 `vars` 是明文变量的唯一真源，
-> 每次部署都会把面板上加的明文变量覆盖掉，Secret 不受影响。
-> 另外，**构建日志不会列出 Secret**（Cloudflare 的既定行为），日志里看不到 Secret 属正常，
-> 是否真的到达 Worker 要看 `/health` 的 `env` 字段。
+> **必须选 Secret 类型**，不要用普通 `Variables`：`wrangler.jsonc` 的 `vars` 是明文变量的
+> 唯一真源，每次部署都会把面板上加的明文变量覆盖掉，Secret 不受影响。
 
 #### 改了代码怎么发布？
 
@@ -88,45 +126,35 @@ git push -u origin main
 git add -A && git commit -m "update" && git push
 ```
 
-推上去后 Cloudflare 会自动重新构建部署，也可以在面板里点 **Retry deployment** 手动触发。
+推上去后 Cloudflare 自动重新构建部署。
 
-#### 依赖源（重要）
+---
 
-`package-lock.json`（182 个依赖）和项目级 `.npmrc` 都已指向官方源 `registry.npmjs.org`。
-Cloudflare 构建机在海外，用国内镜像容易超时导致 `npm ci` 失败，所以**不要改回镜像地址**。
-本地确实想用镜像时，用命令行参数覆盖，别改文件：
+### 方式三：命令行部署
 
-```bash
-npm ci --registry=https://registry.npmmirror.com
-```
-
-### 方式二：命令行部署
+适合已经熟悉 Cloudflare Workers 工具链的用户。
 
 ```bash
 npm install
 npx wrangler login
 
-# 账号池：JSON 数组，整体用单引号包住（key 里含 - 和大量字符）
-# 注：Worker 还不存在时，wrangler 会问你要不要新建一个，选“是”即可
+# 先注入 Secret（Worker 不存在时 wrangler 会自动新建一个空 Worker）
 npx wrangler secret put AMD_ACCOUNTS
-# 粘贴下面这一行后回车：
-# [{"label":"acct-a","apiKey":"rc-aaaa1111"},{"label":"acct-b","apiKey":"rc-bbbb2222"}]
+# 粘贴：[{"label":"acct-a","apiKey":"rc-aaaa1111"},{"label":"acct-b","apiKey":"rc-bbbb2222"}]
 
-# 客户端访问 token（不设则任何人拿到地址都能用你的额度）
 npx wrangler secret put ACCESS_TOKEN
+npx wrangler secret put ADMIN_TOKEN   # 可省
 
-# 管理 token（用于 /admin/* 和看板里的管理操作，可不填）
-npx wrangler secret put ADMIN_TOKEN
-
+# 再部署
 npm run deploy
 ```
 
-部署完会得到地址，例如 `https://amd-api-balancer.<你的子域>.workers.dev`。
+> **顺序很重要**：先设 Secret，再 `npm run deploy`。若先 deploy 后 secret put，
+> 构建会因 `secrets.required` 校验失败。备选方案：`wrangler deploy --secrets-file .env`
 
-> 顺序很重要：**先设 Secret，再 `npm run deploy`**（原因见方式一第 3 步）。
-> 若你跳过了 `secret put`，报错会提示改用 `wrangler deploy --secrets-file <文件>` 一次性带上。
+---
 
-### 本地开发
+### 本地开发（无 Docker）
 
 ```bash
 cp .dev.vars.example .dev.vars   # 填好本地用的 key 和 token
@@ -135,7 +163,7 @@ npm run dev
 
 ## 三、开始使用
 
-把客户端里的 base_url 指向你的 Worker，token 填 `ACCESS_TOKEN`。
+把客户端里的 base_url 指向你的服务地址，token 填 `ACCESS_TOKEN`。
 
 ### OpenAI SDK / 兼容客户端
 
@@ -144,7 +172,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="https://amd-api-balancer.<你的子域>.workers.dev/v1",
-    api_key="你的 ACCESS_TOKEN",          # 不是 rc- key，balancer 会替换成池子里的 key
+    api_key="你的 ACCESS_TOKEN",     # 不是 rc- key，balancer 会替换成池子里的 key
 )
 
 resp = client.chat.completions.create(
@@ -153,6 +181,8 @@ resp = client.chat.completions.create(
 )
 print(resp.choices[0].message.content)
 ```
+
+本地 Docker 方式把地址换成 `http://localhost:8787/v1` 即可。
 
 ### Claude Code / Anthropic 兼容
 
@@ -173,8 +203,7 @@ curl https://amd-api-balancer.<你的子域>.workers.dev/v1/chat/completions \
 
 ### 查看额度看板
 
-浏览器打开 `https://amd-api-balancer.<你的子域>.workers.dev/dashboard`，
-在页面顶部填入 `ADMIN_TOKEN` 即可看到额度并提供增删/启停按钮。
+浏览器打开 `/dashboard`，点右上角齿轮 ⚙️ 图标打开设置面板，填入 `ADMIN_TOKEN` 即可看到额度并提供增删/启停按钮。
 
 ## 四、接口一览
 
@@ -227,8 +256,6 @@ x-amd-pool-accounts: 3              # 当前可用账号数
 5. **定时刷新**：cron 每 10 分钟刷新一次额度，保证看板和调度数据新鲜
 
 ## 六、可配置的环境变量
-
-改 `wrangler.jsonc` 的 `vars`（或 `wrangler secret put`）：
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -288,8 +315,10 @@ npm run tail        # 看线上日志
 在管理接口 `POST /admin/accounts/<label>/reset`，或看板点「启用」可恢复。
 
 ### Q：看板打开是空的 / 提示未授权？
-看板顶部需要填 `ADMIN_TOKEN`，它存在浏览器 localStorage 里。
+点右上角齿轮 ⚙️ 图标打开设置面板，填入 `ADMIN_TOKEN` 或 `ACCESS_TOKEN`。
+Token 保存在浏览器 localStorage，刷新页面不会丢失。
 
 ### Q：能自动重新部署吗？
 设置 `CF_API_TOKEN`、`CF_ACCOUNT_ID`、`CF_SCRIPT_NAME` 后，
 `POST /admin/redeploy` 会通过 Cloudflare API 触发一次部署。
+Docker 方式也可以直接跑 `docker compose run --rm deploy`。
