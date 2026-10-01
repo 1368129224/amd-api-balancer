@@ -258,6 +258,56 @@ export const DASHBOARD_HTML = `<!doctype html>
   .tab:hover { color: var(--fg); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
+  /* auth gate */
+  body.locked #main,
+  body.locked .header-actions {
+    display: none !important;
+  }
+  .auth-gate {
+    position: fixed; inset: 0; z-index: 150;
+    background: radial-gradient(circle at 50% 35%, rgba(20,32,50,0.96), var(--bg) 85%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  body:not(.locked) .auth-gate {
+    display: none !important;
+  }
+  .auth-card {
+    width: 100%; max-width: 400px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 36px 30px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 40px var(--accent-glow);
+    text-align: center;
+    animation: authCardIn .25s ease-out;
+  }
+  @keyframes authCardIn {
+    from { opacity: 0; transform: scale(0.96) translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  .auth-icon {
+    width: 54px; height: 54px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; margin: 0 auto 16px;
+    box-shadow: 0 4px 20px var(--accent-glow);
+  }
+  .auth-title { font-size: 20px; font-weight: 700; color: var(--fg); margin-bottom: 8px; }
+  .auth-desc { font-size: 13px; color: var(--fg2); line-height: 1.5; margin-bottom: 22px; }
+  .auth-input-group { margin-bottom: 16px; position: relative; }
+  .auth-input-group input {
+    font-size: 14px; padding: 12px 14px; border-radius: var(--radius-sm);
+    background: var(--surface2); width: 100%;
+  }
+  .auth-submit-btn { width: 100%; justify-content: center; padding: 11px 16px; font-size: 14px; border-radius: var(--radius-sm); }
+  .auth-error {
+    margin-top: 14px; padding: 10px 12px; border-radius: var(--radius-sm);
+    background: rgba(244,82,74,0.12); border: 1px solid var(--bad-dim);
+    color: var(--bad); font-size: 12px; text-align: left; line-height: 1.5;
+  }
+  .auth-hint { font-size: 11px; color: var(--fg3); margin-top: 20px; line-height: 1.4; }
+
   @media (max-width: 720px) {
     :root { --sidebar-w: 100vw; }
     main.sidebar-open { padding-right: 24px; }
@@ -270,7 +320,26 @@ export const DASHBOARD_HTML = `<!doctype html>
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
-<body>
+<body class="locked">
+<div class="auth-gate" id="authGate">
+  <div class="auth-card">
+    <div class="auth-icon">&#128274;</div>
+    <div class="auth-title">管理员认证</div>
+    <div class="auth-desc">请输入 Admin Token 以访问后台管理控制台</div>
+    <div class="auth-input-group">
+      <input id="gateTokenInput" type="password" placeholder="请输入 ADMIN_TOKEN" autocomplete="off">
+    </div>
+    <button class="primary auth-submit-btn" id="gateLoginBtn">
+      <span id="gateBtnSpinner" class="spin" style="display:none;margin-right:6px"></span>
+      <span id="gateBtnText">验证并进入后台</span>
+    </button>
+    <div id="gateErrMsg" class="auth-error" style="display:none"></div>
+    <div class="auth-hint">
+      若未设置独立 ADMIN_TOKEN，可尝试输入 ACCESS_TOKEN
+    </div>
+  </div>
+</div>
+
 <header>
   <div class="logo">
     <div class="logo-icon">&#9878;</div>
@@ -293,6 +362,10 @@ export const DASHBOARD_HTML = `<!doctype html>
     </select>
     <button class="icon-btn ghost" id="settingsBtn" title="设置 / Token">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button class="icon-btn ghost" id="logoutBtn" title="退出登录并锁定">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      退出
     </button>
   </div>
 </header>
@@ -463,21 +536,135 @@ function closeSidebar() {
   $('main').classList.remove('sidebar-open');
 }
 
+function lock(msg) {
+  document.body.classList.add('locked');
+  closeSidebar();
+  var err = $('gateErrMsg');
+  if (msg) {
+    err.style.display = 'block';
+    err.textContent = msg;
+  } else {
+    err.style.display = 'none';
+  }
+  setTimeout(function() {
+    var inp = $('gateTokenInput');
+    if (inp) inp.focus();
+  }, 60);
+}
+
+function unlock(v) {
+  setToken(v);
+  document.body.classList.remove('locked');
+  $('gateErrMsg').style.display = 'none';
+  $('gateTokenInput').value = '';
+}
+
+async function verifyAdminToken(t) {
+  if (!t) return { ok: false, error: '请输入 Admin Token' };
+  try {
+    var res = await fetch('admin/accounts', {
+      headers: { 'authorization': 'Bearer ' + t, 'content-type': 'application/json' },
+      cache: 'no-store'
+    });
+    if (res.ok) return { ok: true };
+    var text = await res.text();
+    var data;
+    try { data = JSON.parse(text); } catch (e) { data = {}; }
+    var msg = (data.error && data.error.message) || ('认证失败 (HTTP ' + res.status + ')');
+    return { ok: false, error: msg };
+  } catch (e) {
+    return { ok: false, error: '网络错误: ' + e };
+  }
+}
+
+async function submitGateLogin() {
+  var val = $('gateTokenInput').value.trim();
+  if (!val) {
+    var err = $('gateErrMsg');
+    err.style.display = 'block';
+    err.textContent = '请输入 Admin Token';
+    return;
+  }
+  var btn = $('gateLoginBtn');
+  var sp = $('gateBtnSpinner');
+  var txt = $('gateBtnText');
+  btn.disabled = true;
+  sp.style.display = 'inline-block';
+  txt.textContent = '验证中...';
+  $('gateErrMsg').style.display = 'none';
+
+  var r = await verifyAdminToken(val);
+  btn.disabled = false;
+  sp.style.display = 'none';
+  txt.textContent = '验证并进入后台';
+
+  if (r.ok) {
+    toast('认证成功', 'ok');
+    unlock(val);
+    load(true);
+  } else {
+    var errBox = $('gateErrMsg');
+    errBox.style.display = 'block';
+    errBox.textContent = r.error || 'Admin Token 错误，无管理权限';
+  }
+}
+
+$('gateLoginBtn').addEventListener('click', submitGateLogin);
+$('gateTokenInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') submitGateLogin();
+});
+
+$('logoutBtn').addEventListener('click', function() {
+  setToken('');
+  lock('已安全退出，请输入 Admin Token 重新登录');
+  toast('已退出登录', 'ok');
+});
+
 $('settingsBtn').addEventListener('click', function() {
   $('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
 });
 $('overlay').addEventListener('click', closeSidebar);
-$('applyTokenBtn').addEventListener('click', function() {
-  setToken($('tokenInput').value.trim());
-  closeSidebar();
-  load(true);
+$('applyTokenBtn').addEventListener('click', async function() {
+  var val = $('tokenInput').value.trim();
+  if (!val) {
+    setToken('');
+    lock('Token 已清空');
+    return;
+  }
+  var r = await verifyAdminToken(val);
+  if (r.ok) {
+    unlock(val);
+    closeSidebar();
+    load(true);
+    toast('Token 认证成功', 'ok');
+  } else {
+    toast(r.error || 'Token 验证失败', 'err');
+  }
 });
 $('clearTokenBtn').addEventListener('click', function() {
   setToken('');
   $('tokenInput').value = '';
+  lock('Token 已清除');
 });
 $('tokenInput').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') { setToken($('tokenInput').value.trim()); closeSidebar(); load(true); }
+  if (e.key === 'Enter') {
+    var val = $('tokenInput').value.trim();
+    if (!val) {
+      setToken('');
+      lock('Token 已清空');
+      return;
+    }
+    verifyAdminToken(val).then(function(r) {
+      if (r.ok) {
+        unlock(val);
+        closeSidebar();
+        load(true);
+        toast('Token 认证成功', 'ok');
+      } else {
+        toast(r.error || 'Token 验证失败', 'err');
+      }
+    });
+  }
 });
 
 function getInterval() { return Number($('intervalSel').value); }
@@ -533,6 +720,7 @@ function authHeaders(extra) {
 
 async function load(showErrors) {
   if (loading) return;
+  if (document.body.classList.contains('locked') && !getToken()) return;
   loading = true;
   var btn = $('refreshBtn');
   if (btn) { btn.innerHTML = '<span class="spin"></span> 刷新中'; btn.disabled = true; }
@@ -547,7 +735,14 @@ async function load(showErrors) {
     if (btn) { btn.textContent = '刷新'; btn.disabled = false; }
     return;
   }
-  if (res.status === 401 && report) { setToken(''); report = null; }
+  if (res.status === 401) {
+    setToken('');
+    report = null;
+    lock('认证已失效，请重新输入 Admin Token');
+    loading = false;
+    if (btn) { btn.textContent = '刷新'; btn.disabled = false; }
+    return;
+  }
   var text = await res.text();
   var data;
   try { data = JSON.parse(text); } catch(e) { data = {raw: text}; }
@@ -773,6 +968,20 @@ $('copyUsageBtn').addEventListener('click', function() {
 
 syncTokenUI();
 renderUsage();
+var initTok = getToken();
+if (initTok) {
+  verifyAdminToken(initTok).then(function(r) {
+    if (r.ok) {
+      unlock(initTok);
+      load(false);
+    } else {
+      setToken('');
+      lock(r.error || '保存的 Token 已失效，请重新输入');
+    }
+  });
+} else {
+  lock();
+}
 load(false);
 </script>
 </body>

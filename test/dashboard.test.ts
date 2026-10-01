@@ -84,4 +84,15 @@ describe("dashboard 内联脚本", () => {
     expect(missing).toEqual([]);
     expect(used.size).toBeGreaterThan(8);
   });
+
+  it("包含管理员认证门禁结构与初始锁定状态", () => {
+    expect(DASHBOARD_HTML).toContain('<body class="locked">');
+    expect(DASHBOARD_HTML).toContain('id="authGate"');
+    expect(DASHBOARD_HTML).toContain('id="gateTokenInput"');
+    expect(DASHBOARD_HTML).toContain('id="gateLoginBtn"');
+    expect(DASHBOARD_HTML).toContain('id="logoutBtn"');
+    const js = inlineScript(DASHBOARD_HTML);
+    expect(js).toContain("verifyAdminToken");
+    expect(js).toContain("admin/accounts");
+  });
 });
