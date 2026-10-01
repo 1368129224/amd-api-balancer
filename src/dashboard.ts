@@ -308,6 +308,89 @@ export const DASHBOARD_HTML = `<!doctype html>
   }
   .auth-hint { font-size: 11px; color: var(--fg3); margin-top: 20px; line-height: 1.4; }
 
+  .test-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    margin-top: 14px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .test-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--border);
+  }
+  .test-panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg);
+  }
+  .test-panel-body {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .test-form-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+  .test-field-model {
+    flex: 1 1 240px;
+    min-width: 220px;
+  }
+  .test-field-prompt {
+    flex: 2 1 300px;
+    min-width: 240px;
+  }
+  .test-field-action {
+    flex: 0 0 auto;
+  }
+  .test-result-box {
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .test-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  .test-result-meta {
+    font-family: ui-monospace, monospace;
+    color: var(--fg2);
+    font-size: 11px;
+  }
+  .test-result-content {
+    margin: 0;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 220px;
+    overflow-y: auto;
+    color: var(--fg);
+    font-family: inherit;
+  }
+
   @media (max-width: 720px) {
     :root { --sidebar-w: 100vw; }
     main.sidebar-open { padding-right: 24px; }
@@ -393,6 +476,46 @@ export const DASHBOARD_HTML = `<!doctype html>
     </div>
     <div class="account-list" id="acctList">
       <div class="empty"><div class="empty-icon">&#8987;</div>加载中&#8230;</div>
+    </div>
+
+    <div class="test-panel" id="modelTestPanel">
+      <div class="test-panel-header">
+        <div class="test-panel-title">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          模型可用性测试
+        </div>
+        <button class="icon-btn ghost" id="fetchModelsBtn" title="重新从 /v1/models 拉取模型列表">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          获取可用模型
+        </button>
+      </div>
+      <div class="test-panel-body">
+        <div class="test-form-row">
+          <div class="test-field-model">
+            <label>选择可用模型</label>
+            <select id="testModelSel">
+              <option value="">点击“获取可用模型”加载...</option>
+            </select>
+          </div>
+          <div class="test-field-prompt">
+            <label>测试 Prompt（可选）</label>
+            <input id="testPromptInput" placeholder="输入测试问题" value="你好，请回复'pong'测试联通性">
+          </div>
+          <div class="test-field-action">
+            <button class="primary" id="runTestBtn" style="white-space:nowrap;height:34px;display:flex;align-items:center;gap:6px">
+              <span id="testBtnSpinner" class="spin" style="display:none;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%"></span>
+              <span id="testBtnText">检测选中模型</span>
+            </button>
+          </div>
+        </div>
+        <div id="testResultBox" class="test-result-box" style="display:none">
+          <div class="test-result-header">
+            <div id="testResultBadge" class="badge">200 OK</div>
+            <div id="testResultMeta" class="test-result-meta"></div>
+          </div>
+          <pre id="testResultContent" class="test-result-content"></pre>
+        </div>
+      </div>
     </div>
 
     <details class="panel">
@@ -557,6 +680,7 @@ function unlock(v) {
   document.body.classList.remove('locked');
   $('gateErrMsg').style.display = 'none';
   $('gateTokenInput').value = '';
+  fetchModels(true);
 }
 
 async function verifyAdminToken(t) {
@@ -965,6 +1089,120 @@ $('copyUsageBtn').addEventListener('click', function() {
   var el = $('usage');
   navigator.clipboard && navigator.clipboard.writeText(el.textContent).then(function() { toast('\u5df2\u590d\u5236', 'ok'); });
 });
+
+var cachedModels = [];
+
+async function fetchModels(silent) {
+  var btn = $('fetchModelsBtn');
+  var sel = $('testModelSel');
+  if (btn) btn.disabled = true;
+  try {
+    var res = await fetch('v1/models', {
+      headers: authHeaders(),
+      cache: 'no-store'
+    });
+    var text = await res.text();
+    var data;
+    try { data = JSON.parse(text); } catch (e) { data = {}; }
+    if (!res.ok) {
+      var err = (data.error && data.error.message) || ('HTTP ' + res.status);
+      if (!silent) toast('获取模型失败: ' + err, 'err');
+      return;
+    }
+    var list = (data && Array.isArray(data.data)) ? data.data : [];
+    if (!list.length) {
+      if (!silent) toast('上游未返回任何模型', 'err');
+      return;
+    }
+    cachedModels = list;
+    var prevVal = sel.value;
+    sel.innerHTML = list.map(function(m) {
+      var name = m.id || m.name;
+      return '<option value="' + esc(m.id) + '">' + esc(name) + '</option>';
+    }).join('');
+    if (prevVal && list.some(function(m) { return m.id === prevVal; })) {
+      sel.value = prevVal;
+    }
+    if (!silent) toast('成功获取 ' + list.length + ' 个可用模型', 'ok');
+  } catch (err) {
+    if (!silent) toast('获取模型网络错误: ' + err, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function runModelTest() {
+  var sel = $('testModelSel');
+  var model = sel.value;
+  if (!model) {
+    toast('请先点击“获取可用模型”并选择一个模型', 'err');
+    return;
+  }
+  var prompt = $('testPromptInput').value.trim() || 'hi';
+  var btn = $('runTestBtn');
+  var sp = $('testBtnSpinner');
+  var txt = $('testBtnText');
+  var box = $('testResultBox');
+  var badge = $('testResultBadge');
+  var meta = $('testResultMeta');
+  var content = $('testResultContent');
+
+  btn.disabled = true;
+  sp.style.display = 'inline-block';
+  txt.textContent = '检测中...';
+  box.style.display = 'none';
+
+  var t0 = Date.now();
+  try {
+    var res = await fetch('v1/chat/completions', {
+      method: 'POST',
+      headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 60
+      })
+    });
+    var rtt = Date.now() - t0;
+    var text = await res.text();
+    var data;
+    try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
+
+    box.style.display = 'flex';
+    if (res.ok) {
+      badge.textContent = '200 OK (' + rtt + 'ms)';
+      badge.className = 'badge ok';
+      var acct = res.headers.get('x-amd-account') || (data.metadata && data.metadata.routing && data.metadata.routing[0] && data.metadata.routing[0].model) || 'balancer';
+      var usageInfo = data.usage ? (' | ' + (data.usage.completion_tokens || 0) + ' tokens') : '';
+      meta.textContent = '调度账号: ' + acct + usageInfo;
+      var reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data, null, 2);
+      content.textContent = reply;
+      toast('模型检测成功 (' + rtt + 'ms)', 'ok');
+    } else {
+      badge.textContent = 'HTTP ' + res.status + ' (' + rtt + 'ms)';
+      badge.className = 'badge bad';
+      meta.textContent = '检测失败';
+      var errMsg = (data.error && data.error.message) || data.raw || ('HTTP ' + res.status);
+      content.textContent = errMsg;
+      toast('检测失败: ' + ((data.error && data.error.message) || ('HTTP ' + res.status)), 'err');
+    }
+  } catch (err) {
+    var rtt = Date.now() - t0;
+    box.style.display = 'flex';
+    badge.textContent = 'Network Error (' + rtt + 'ms)';
+    badge.className = 'badge bad';
+    meta.textContent = '网络异常';
+    content.textContent = String(err);
+    toast('网络异常: ' + err, 'err');
+  } finally {
+    btn.disabled = false;
+    sp.style.display = 'none';
+    txt.textContent = '检测选中模型';
+  }
+}
+
+$('fetchModelsBtn').addEventListener('click', function() { fetchModels(false); });
+$('runTestBtn').addEventListener('click', runModelTest);
 
 syncTokenUI();
 renderUsage();

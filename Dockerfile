@@ -9,6 +9,9 @@
 FROM node:22-slim AS base
 WORKDIR /app
 
+# 安装 ca-certificates 确保 workerd 向外请求 HTTPS 不报证书错误
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+
 # 只复制包管理文件，利用 Docker 层缓存
 COPY package.json package-lock.json .npmrc ./
 
