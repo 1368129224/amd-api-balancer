@@ -41,6 +41,7 @@
 
 ```bash
 # 1. 复制配置文件
+cp docker-compose.example.yml docker-compose.yml
 cp .env.example .env
 
 # 2. 编辑 .env，填入你的 key 和 token（必填 AMD_ACCOUNTS，建议填 ACCESS_TOKEN）

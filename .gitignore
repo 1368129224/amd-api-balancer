@@ -3,6 +3,7 @@ node_modules/
 dist/
 .dev.vars
 .env
+docker-compose.yml
 *.log
 .DS_Store
 coverage/
