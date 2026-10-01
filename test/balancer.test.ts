@@ -845,7 +845,7 @@ describe("Balancer 管理接口", () => {
     let capturedAuth = "";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         const headers = new Headers(init?.headers);
         capturedAuth = headers.get("authorization") ?? "";
         return new Response(JSON.stringify({ choices: [{ message: { content: "pong" } }] }), {

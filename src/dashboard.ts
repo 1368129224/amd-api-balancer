@@ -540,14 +540,10 @@ export const DASHBOARD_HTML = `<!doctype html>
             <label>测试 Prompt（可选）</label>
             <input id="testPromptInput" placeholder="输入测试问题" value="你好，请回复'pong'测试联通性">
           </div>
-          <div class="test-field-action" style="display:flex;gap:6px">
+          <div class="test-field-action">
             <button class="primary" id="runTestBtn" style="white-space:nowrap;height:34px;display:flex;align-items:center;gap:6px">
               <span id="testBtnSpinner" class="spin" style="display:none;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%"></span>
               <span id="testBtnText">检测选中模型</span>
-            </button>
-            <button class="ghost" id="runPingBtn" style="white-space:nowrap;height:34px;display:flex;align-items:center;gap:6px" title="发送极简请求测量最小网络与上游延迟">
-              <span id="pingBtnSpinner" class="spin" style="display:none;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%"></span>
-              <span id="pingBtnText">测延迟</span>
             </button>
           </div>
         </div>
@@ -1208,7 +1204,7 @@ async function fetchModels(silent) {
   }
 }
 
-async function runModelTest(isPing) {
+async function runModelTest() {
   var sel = $('testModelSel');
   var model = sel.value;
   if (!model) {
@@ -1216,19 +1212,15 @@ async function runModelTest(isPing) {
     return;
   }
   var targetAcct = $('testAccountSel').value.trim();
-  var prompt = isPing ? 'hi' : ($('testPromptInput').value.trim() || 'hi');
-  var maxTokens = isPing ? 1 : 60;
+  var prompt = $('testPromptInput').value.trim() || '你好，请回复 pong 测试联通性';
 
-  var runBtn = $('runTestBtn');
-  var pingBtn = $('runPingBtn');
-  var sp = isPing ? $('pingBtnSpinner') : $('testBtnSpinner');
-  var txt = isPing ? $('pingBtnText') : $('testBtnText');
-  var origTxt = isPing ? '测延迟' : '检测选中模型';
+  var btn = $('runTestBtn');
+  var sp = $('testBtnSpinner');
+  var txt = $('testBtnText');
 
-  runBtn.disabled = true;
-  pingBtn.disabled = true;
+  btn.disabled = true;
   sp.style.display = 'inline-block';
-  txt.textContent = isPing ? '测速中...' : '检测中...';
+  txt.textContent = '检测与测速中...';
 
   var box = $('testResultBox');
   var badge = $('testResultBadge');
@@ -1254,7 +1246,7 @@ async function runModelTest(isPing) {
       body: JSON.stringify({
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: maxTokens
+        max_tokens: 60
       })
     });
     var rtt = Date.now() - t0;
@@ -1271,7 +1263,7 @@ async function runModelTest(isPing) {
       var rttCls = rtt < 600 ? 'fast' : rtt < 1500 ? 'normal' : rtt < 3000 ? 'slow' : 'bad';
       badge.textContent = '200 OK (' + rtt + 'ms)';
       badge.className = 'badge ok';
-      meta.textContent = (isPing ? '测延迟完成' : '模型推理正常') + (targetAcct ? ' [指定: ' + targetAcct + ']' : ' [自动调度]');
+      meta.textContent = '检测通过' + (targetAcct ? ' [指定: ' + targetAcct + ']' : ' [自动调度]');
 
       metricRtt.textContent = rtt + ' ms';
       metricRtt.className = 'metric-num ' + rttCls;
@@ -1279,7 +1271,7 @@ async function runModelTest(isPing) {
       metricUpstream.textContent = !isNaN(upstreamMs) && upstreamMs > 0 ? (upstreamMs + ' ms') : (rtt + ' ms');
       metricUpstream.className = 'metric-num ' + rttCls;
 
-      var compTokens = (data.usage && data.usage.completion_tokens) || (isPing ? 1 : 0);
+      var compTokens = (data.usage && data.usage.completion_tokens) || 0;
       var tps = (compTokens > 0 && rtt > 0) ? ((compTokens / (rtt / 1000)).toFixed(1) + ' t/s') : '\u2014';
       metricSpeed.textContent = tps;
       metricSpeed.className = 'metric-num';
@@ -1289,7 +1281,7 @@ async function runModelTest(isPing) {
 
       var reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data, null, 2);
       content.textContent = reply;
-      toast((isPing ? '测延迟成功: ' : '检测成功: ') + rtt + 'ms (' + acct + ')', 'ok');
+      toast('检测成功: ' + rtt + 'ms (' + acct + ')', 'ok');
     } else {
       badge.textContent = 'HTTP ' + res.status + ' (' + rtt + 'ms)';
       badge.className = 'badge bad';
@@ -1307,16 +1299,14 @@ async function runModelTest(isPing) {
     content.textContent = String(err);
     toast('网络异常: ' + err, 'err');
   } finally {
-    runBtn.disabled = false;
-    pingBtn.disabled = false;
+    btn.disabled = false;
     sp.style.display = 'none';
-    txt.textContent = origTxt;
+    txt.textContent = '检测选中模型';
   }
 }
 
 $('fetchModelsBtn').addEventListener('click', function() { fetchModels(false); });
-$('runTestBtn').addEventListener('click', function() { runModelTest(false); });
-$('runPingBtn').addEventListener('click', function() { runModelTest(true); });
+$('runTestBtn').addEventListener('click', runModelTest);
 
 syncTokenUI();
 renderUsage();

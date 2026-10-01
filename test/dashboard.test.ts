@@ -103,7 +103,6 @@ describe("dashboard 内联脚本", () => {
     expect(DASHBOARD_HTML).toContain('id="testModelSel"');
     expect(DASHBOARD_HTML).toContain('id="testPromptInput"');
     expect(DASHBOARD_HTML).toContain('id="runTestBtn"');
-    expect(DASHBOARD_HTML).toContain('id="runPingBtn"');
     expect(DASHBOARD_HTML).toContain('id="testResultBox"');
     expect(DASHBOARD_HTML).toContain('id="testMetricsGrid"');
     expect(DASHBOARD_HTML).toContain('id="metricRtt"');
