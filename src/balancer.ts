@@ -479,11 +479,26 @@ export class Balancer {
       );
     }
 
+    const targetAccount = request.headers.get("x-amd-target-account")?.trim();
+    let candidateAccounts = accounts;
+    if (targetAccount) {
+      const matched = accounts.find((a) => a.label === targetAccount);
+      if (!matched) {
+        return jsonError(
+          404,
+          "account_not_found",
+          `指定的账号 '${targetAccount}' 不存在`,
+          "invalid_request_error",
+        );
+      }
+      candidateAccounts = [matched];
+    }
+
     const body = await readBody(request, cfg);
     if (body instanceof Response) return body;
 
     const tried = new Set<string>();
-    const maxAttempts = Math.max(1, Math.min(cfg.maxKeyAttempts, accounts.length));
+    const maxAttempts = Math.max(1, Math.min(cfg.maxKeyAttempts, candidateAccounts.length));
     let lastFailure: { status: number; headers: [string, string][]; text: string; label: string } | null =
       null;
     let lastClassified: Classified | null = null;
@@ -491,7 +506,9 @@ export class Balancer {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const now = Date.now();
-      const { list, waitMs } = this.candidateOrder(accounts, cfg, now, tried);
+      const { list, waitMs } = targetAccount
+        ? { list: tried.has(candidateAccounts[0]!.label) ? [] : [candidateAccounts[0]!], waitMs: 0 }
+        : this.candidateOrder(candidateAccounts, cfg, now, tried);
       const ordered = this.applySticky(list, request, now);
       const account = ordered[0];
       if (!account) {
@@ -503,18 +520,20 @@ export class Balancer {
 
       let res: Response | undefined;
       let networkError: string | undefined;
+      const dispatchStart = Date.now();
       try {
         res = await this.dispatch(account, request, path, body, protocol);
       } catch (err) {
         networkError = err instanceof Error ? err.message : String(err);
       }
+      const latencyMs = Date.now() - dispatchStart;
 
       if (res && res.ok) {
         if (attempt > 0) this.stateFor(account.label).totalRetries++;
         this.rememberSticky(request, account.label, now);
         const built = opts.buffer
-          ? await this.bufferedResponse(res, account, release, attempt, cfg, now)
-          : this.streamResponse(res, account, release, attempt, cfg, now);
+          ? await this.bufferedResponse(res, account, release, attempt, cfg, now, latencyMs)
+          : this.streamResponse(res, account, release, attempt, cfg, now, latencyMs);
         this.log("ok", account.label, `${path} ${res.status} ${Date.now() - started}ms`);
         return built;
       }
@@ -616,8 +635,9 @@ export class Balancer {
     attempt: number,
     cfg: RuntimeConfig,
     now: number,
+    latencyMs?: number,
   ): Response {
-    const meta = this.recordSuccess(upstream, account, attempt, cfg, now);
+    const meta = this.recordSuccess(upstream, account, attempt, cfg, now, latencyMs);
     const status = upstream.status;
     try {
       const headers = clientHeaders(upstream.headers, meta);
@@ -644,9 +664,10 @@ export class Balancer {
     attempt: number,
     cfg: RuntimeConfig,
     now: number,
+    latencyMs?: number,
   ): Promise<Response> {
     const text = await safeText(upstream);
-    const meta = this.recordSuccess(upstream, account, attempt, cfg, now);
+    const meta = this.recordSuccess(upstream, account, attempt, cfg, now, latencyMs);
     release();
     if (upstream.status === 200) {
       this.modelsCache = {
@@ -670,6 +691,7 @@ export class Balancer {
     attempt: number,
     cfg: RuntimeConfig,
     now: number,
+    latencyMs?: number,
   ): MetaHeaders {
     const state = this.stateFor(account.label);
     const quota = applyQuotaHeaders(state.quota, upstream.headers);
@@ -695,6 +717,7 @@ export class Balancer {
       attempt: attempt + 1,
       quota: state.quota,
       pool: this.poolTotals(cfg, now),
+      latencyMs,
     };
   }
 
@@ -1353,6 +1376,7 @@ interface MetaHeaders {
   attempt: number;
   quota?: QuotaSnapshot;
   pool: { remaining?: number; accounts: number };
+  latencyMs?: number;
 }
 
 const HOP_BY_HOP = new Set([
@@ -1377,6 +1401,9 @@ function clientHeaders(upstream: Headers, meta: MetaHeaders): Headers {
   }
   headers.set("x-amd-account", meta.label);
   headers.set("x-amd-attempt", String(meta.attempt));
+  if (meta.latencyMs !== undefined) {
+    headers.set("x-amd-latency-ms", String(meta.latencyMs));
+  }
   headers.delete("x-amd-models-cache");
   if (meta.quota) {
     if (meta.quota.dailyUsdRemaining !== undefined)
@@ -1399,6 +1426,7 @@ function clientHeaders(upstream: Headers, meta: MetaHeaders): Headers {
     [
       "x-amd-account",
       "x-amd-attempt",
+      "x-amd-latency-ms",
       "x-amd-quota-remaining-usd",
       "x-amd-quota-used-usd",
       "x-amd-quota-limit-usd",

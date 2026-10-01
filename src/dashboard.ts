@@ -344,16 +344,49 @@ export const DASHBOARD_HTML = `<!doctype html>
     align-items: flex-end;
     flex-wrap: wrap;
   }
+  .test-field-acct {
+    flex: 1 1 180px;
+    min-width: 160px;
+  }
   .test-field-model {
-    flex: 1 1 240px;
-    min-width: 220px;
+    flex: 1 1 220px;
+    min-width: 200px;
   }
   .test-field-prompt {
-    flex: 2 1 300px;
-    min-width: 240px;
+    flex: 2 1 260px;
+    min-width: 200px;
   }
   .test-field-action {
     flex: 0 0 auto;
+  }
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
+  .metric-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    text-align: center;
+  }
+  .metric-num {
+    font-size: 15px;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    color: var(--fg);
+  }
+  .metric-num.fast { color: var(--ok); }
+  .metric-num.normal { color: #58a6ff; }
+  .metric-num.slow { color: var(--warn); }
+  .metric-num.bad { color: var(--bad); }
+  .metric-name {
+    font-size: 11px;
+    color: var(--fg3);
+    margin-top: 3px;
   }
   .test-result-box {
     background: rgba(0, 0, 0, 0.35);
@@ -491,6 +524,12 @@ export const DASHBOARD_HTML = `<!doctype html>
       </div>
       <div class="test-panel-body">
         <div class="test-form-row">
+          <div class="test-field-acct">
+            <label>指定账号（可选）</label>
+            <select id="testAccountSel">
+              <option value="">自动均衡（全池调度）</option>
+            </select>
+          </div>
           <div class="test-field-model">
             <label>选择可用模型</label>
             <select id="testModelSel">
@@ -501,10 +540,14 @@ export const DASHBOARD_HTML = `<!doctype html>
             <label>测试 Prompt（可选）</label>
             <input id="testPromptInput" placeholder="输入测试问题" value="你好，请回复'pong'测试联通性">
           </div>
-          <div class="test-field-action">
+          <div class="test-field-action" style="display:flex;gap:6px">
             <button class="primary" id="runTestBtn" style="white-space:nowrap;height:34px;display:flex;align-items:center;gap:6px">
               <span id="testBtnSpinner" class="spin" style="display:none;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%"></span>
               <span id="testBtnText">检测选中模型</span>
+            </button>
+            <button class="ghost" id="runPingBtn" style="white-space:nowrap;height:34px;display:flex;align-items:center;gap:6px" title="发送极简请求测量最小网络与上游延迟">
+              <span id="pingBtnSpinner" class="spin" style="display:none;width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%"></span>
+              <span id="pingBtnText">测延迟</span>
             </button>
           </div>
         </div>
@@ -512,6 +555,24 @@ export const DASHBOARD_HTML = `<!doctype html>
           <div class="test-result-header">
             <div id="testResultBadge" class="badge">200 OK</div>
             <div id="testResultMeta" class="test-result-meta"></div>
+          </div>
+          <div class="metric-grid" id="testMetricsGrid" style="display:none">
+            <div class="metric-item">
+              <div class="metric-num" id="metricRtt">—</div>
+              <div class="metric-name">端到端总延迟 (RTT)</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num" id="metricUpstream">—</div>
+              <div class="metric-name">上游响应耗时</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num" id="metricSpeed">—</div>
+              <div class="metric-name">生成吞吐速率</div>
+            </div>
+            <div class="metric-item">
+              <div class="metric-num" id="metricAccount">—</div>
+              <div class="metric-name">调度命中账号</div>
+            </div>
           </div>
           <pre id="testResultContent" class="test-result-content"></pre>
         </div>
@@ -917,6 +978,7 @@ function render() {
 
   var accts = d.accounts || [];
   $('acctCount').textContent = accts.length;
+  updateAccountSelect(accts);
   if (!accts.length) {
     $('acctList').innerHTML = '<div class="empty"><div class="empty-icon">\ud83d\udce1</div>\u8fd8\u6ca1\u6709\u8d26\u53f7\u3002\u8bf7\u5728\u53f3\u4e0a\u89d2\u8bbe\u7f6e\u91cc\u914d\u7f6e Token\uff0c\u6216\u5728\u201c\u6dfb\u52a0\u8d26\u53f7\u201d\u91cc\u586b\u5165 key\u3002</div>';
   } else {
@@ -929,6 +991,21 @@ function render() {
     hint.style.display = '';
     hint.textContent = '\u5df2\u9690\u85cf\uff08\u6765\u81ea secret\uff09\uff1a' + hidden.join(', ');
   } else { hint.style.display = 'none'; }
+}
+
+function updateAccountSelect(accts) {
+  var sel = $('testAccountSel');
+  if (!sel) return;
+  var cur = sel.value;
+  var html = '<option value="">自动均衡（全池调度）</option>';
+  (accts || []).forEach(function(a) {
+    var status = a.disabled ? ' (\u5df2\u7981\u7528)' : (!a.enabled ? ' (\u5df2\u505c\u7528)' : (a.coolingDown ? ' (\u51b7\u5374\u4e2d)' : ' (\u6b63\u5e38)'));
+    html += '<option value="' + esc(a.label) + '">' + esc(a.label) + status + '</option>';
+  });
+  sel.innerHTML = html;
+  if (cur && (accts || []).some(function(a) { return a.label === cur; })) {
+    sel.value = cur;
+  }
 }
 
 function renderAccount(a) {
@@ -1131,36 +1208,53 @@ async function fetchModels(silent) {
   }
 }
 
-async function runModelTest() {
+async function runModelTest(isPing) {
   var sel = $('testModelSel');
   var model = sel.value;
   if (!model) {
     toast('请先点击“获取可用模型”并选择一个模型', 'err');
     return;
   }
-  var prompt = $('testPromptInput').value.trim() || 'hi';
-  var btn = $('runTestBtn');
-  var sp = $('testBtnSpinner');
-  var txt = $('testBtnText');
+  var targetAcct = $('testAccountSel').value.trim();
+  var prompt = isPing ? 'hi' : ($('testPromptInput').value.trim() || 'hi');
+  var maxTokens = isPing ? 1 : 60;
+
+  var runBtn = $('runTestBtn');
+  var pingBtn = $('runPingBtn');
+  var sp = isPing ? $('pingBtnSpinner') : $('testBtnSpinner');
+  var txt = isPing ? $('pingBtnText') : $('testBtnText');
+  var origTxt = isPing ? '测延迟' : '检测选中模型';
+
+  runBtn.disabled = true;
+  pingBtn.disabled = true;
+  sp.style.display = 'inline-block';
+  txt.textContent = isPing ? '测速中...' : '检测中...';
+
   var box = $('testResultBox');
   var badge = $('testResultBadge');
   var meta = $('testResultMeta');
+  var metricsGrid = $('testMetricsGrid');
+  var metricRtt = $('metricRtt');
+  var metricUpstream = $('metricUpstream');
+  var metricSpeed = $('metricSpeed');
+  var metricAccount = $('metricAccount');
   var content = $('testResultContent');
 
-  btn.disabled = true;
-  sp.style.display = 'inline-block';
-  txt.textContent = '检测中...';
   box.style.display = 'none';
+  metricsGrid.style.display = 'none';
 
   var t0 = Date.now();
   try {
+    var headers = Object.assign({ 'content-type': 'application/json' }, authHeaders());
+    if (targetAcct) headers['x-amd-target-account'] = targetAcct;
+
     var res = await fetch('v1/chat/completions', {
       method: 'POST',
-      headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
+      headers: headers,
       body: JSON.stringify({
         model: model,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 60
+        max_tokens: maxTokens
       })
     });
     var rtt = Date.now() - t0;
@@ -1169,19 +1263,37 @@ async function runModelTest() {
     try { data = JSON.parse(text); } catch (e) { data = { raw: text }; }
 
     box.style.display = 'flex';
+    var upstreamMs = Number(res.headers.get('x-amd-latency-ms'));
+    var acct = res.headers.get('x-amd-account') || (data.metadata && data.metadata.routing && data.metadata.routing[0] && data.metadata.routing[0].model) || targetAcct || 'balancer';
+
     if (res.ok) {
+      metricsGrid.style.display = 'grid';
+      var rttCls = rtt < 600 ? 'fast' : rtt < 1500 ? 'normal' : rtt < 3000 ? 'slow' : 'bad';
       badge.textContent = '200 OK (' + rtt + 'ms)';
       badge.className = 'badge ok';
-      var acct = res.headers.get('x-amd-account') || (data.metadata && data.metadata.routing && data.metadata.routing[0] && data.metadata.routing[0].model) || 'balancer';
-      var usageInfo = data.usage ? (' | ' + (data.usage.completion_tokens || 0) + ' tokens') : '';
-      meta.textContent = '调度账号: ' + acct + usageInfo;
+      meta.textContent = (isPing ? '测延迟完成' : '模型推理正常') + (targetAcct ? ' [指定: ' + targetAcct + ']' : ' [自动调度]');
+
+      metricRtt.textContent = rtt + ' ms';
+      metricRtt.className = 'metric-num ' + rttCls;
+
+      metricUpstream.textContent = !isNaN(upstreamMs) && upstreamMs > 0 ? (upstreamMs + ' ms') : (rtt + ' ms');
+      metricUpstream.className = 'metric-num ' + rttCls;
+
+      var compTokens = (data.usage && data.usage.completion_tokens) || (isPing ? 1 : 0);
+      var tps = (compTokens > 0 && rtt > 0) ? ((compTokens / (rtt / 1000)).toFixed(1) + ' t/s') : '\u2014';
+      metricSpeed.textContent = tps;
+      metricSpeed.className = 'metric-num';
+
+      metricAccount.textContent = acct;
+      metricAccount.className = 'metric-num';
+
       var reply = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || JSON.stringify(data, null, 2);
       content.textContent = reply;
-      toast('模型检测成功 (' + rtt + 'ms)', 'ok');
+      toast((isPing ? '测延迟成功: ' : '检测成功: ') + rtt + 'ms (' + acct + ')', 'ok');
     } else {
       badge.textContent = 'HTTP ' + res.status + ' (' + rtt + 'ms)';
       badge.className = 'badge bad';
-      meta.textContent = '检测失败';
+      meta.textContent = '检测失败 - 账号: ' + acct;
       var errMsg = (data.error && data.error.message) || data.raw || ('HTTP ' + res.status);
       content.textContent = errMsg;
       toast('检测失败: ' + ((data.error && data.error.message) || ('HTTP ' + res.status)), 'err');
@@ -1195,14 +1307,16 @@ async function runModelTest() {
     content.textContent = String(err);
     toast('网络异常: ' + err, 'err');
   } finally {
-    btn.disabled = false;
+    runBtn.disabled = false;
+    pingBtn.disabled = false;
     sp.style.display = 'none';
-    txt.textContent = '检测选中模型';
+    txt.textContent = origTxt;
   }
 }
 
 $('fetchModelsBtn').addEventListener('click', function() { fetchModels(false); });
-$('runTestBtn').addEventListener('click', runModelTest);
+$('runTestBtn').addEventListener('click', function() { runModelTest(false); });
+$('runPingBtn').addEventListener('click', function() { runModelTest(true); });
 
 syncTokenUI();
 renderUsage();

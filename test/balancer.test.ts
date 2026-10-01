@@ -840,4 +840,60 @@ describe("Balancer 管理接口", () => {
     expect(report.accounts.map((a: { label: string }) => a.label).sort()).toEqual(["a", "new"]);
     expect(report.persistent).toBe(true);
   });
+
+  it("支持通过 x-amd-target-account 指定账号并返回 x-amd-latency-ms", async () => {
+    let capturedAuth = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        capturedAuth = headers.get("authorization") ?? "";
+        return new Response(JSON.stringify({ choices: [{ message: { content: "pong" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    const b = new Balancer();
+    const env = makeEnv(
+      JSON.stringify([
+        { label: "acct-1", apiKey: "rc-key-1" },
+        { label: "acct-2", apiKey: "rc-key-2" },
+      ]),
+    );
+
+    const res = await b.fetch(
+      new Request("https://balancer.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-amd-target-account": "acct-2",
+        },
+        body: JSON.stringify({ model: "DeepSeek-V4-Flash", messages: [] }),
+      }),
+      env,
+      makeCtx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-amd-account")).toBe("acct-2");
+    expect(capturedAuth).toBe("Bearer rc-key-2");
+    expect(res.headers.get("x-amd-latency-ms")).toBeTruthy();
+
+    // 测试指定不存在的账号返回 404
+    const notFound = await b.fetch(
+      new Request("https://balancer.test/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-amd-target-account": "non-existent",
+        },
+        body: JSON.stringify({ model: "DeepSeek-V4-Flash", messages: [] }),
+      }),
+      env,
+      makeCtx(),
+    );
+    expect(notFound.status).toBe(404);
+  });
 });

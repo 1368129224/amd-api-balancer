@@ -99,15 +99,25 @@ describe("dashboard 内联脚本", () => {
   it("包含模型可用性测试面板及模型获取与检测逻辑", () => {
     expect(DASHBOARD_HTML).toContain('id="modelTestPanel"');
     expect(DASHBOARD_HTML).toContain('id="fetchModelsBtn"');
+    expect(DASHBOARD_HTML).toContain('id="testAccountSel"');
     expect(DASHBOARD_HTML).toContain('id="testModelSel"');
     expect(DASHBOARD_HTML).toContain('id="testPromptInput"');
     expect(DASHBOARD_HTML).toContain('id="runTestBtn"');
+    expect(DASHBOARD_HTML).toContain('id="runPingBtn"');
     expect(DASHBOARD_HTML).toContain('id="testResultBox"');
+    expect(DASHBOARD_HTML).toContain('id="testMetricsGrid"');
+    expect(DASHBOARD_HTML).toContain('id="metricRtt"');
+    expect(DASHBOARD_HTML).toContain('id="metricUpstream"');
+    expect(DASHBOARD_HTML).toContain('id="metricSpeed"');
+    expect(DASHBOARD_HTML).toContain('id="metricAccount"');
     expect(DASHBOARD_HTML).toContain('id="testResultContent"');
 
     const js = inlineScript(DASHBOARD_HTML);
     expect(js).toContain("fetchModels");
     expect(js).toContain("runModelTest");
+    expect(js).toContain("updateAccountSelect");
+    expect(js).toContain("x-amd-target-account");
+    expect(js).toContain("x-amd-latency-ms");
     expect(js).toContain("v1/models");
     expect(js).toContain("v1/chat/completions");
   });
